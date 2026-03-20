@@ -1,0 +1,8 @@
+numpy
+librosa
+sounddevice
+soundfile
+edge-tts
+google-generativeai
+# playsound is optional on Windows (os.startfile is used). If you need cross-platform
+# automatic playback on non-Windows systems, install playsound or another audio player.
