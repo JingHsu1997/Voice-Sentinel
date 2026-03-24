@@ -8,6 +8,21 @@ __pycache__/
 .env
 .DS_Store
 *.egg-info/
-# 音訊輸出檔案
+
+# Audio output files
 *.wav
 *.mp3
+*.flac
+*.ogg
+
+# Runtime directories
+recordings/
+
+# OS / editor artifacts
+Thumbs.db
+.vscode/
+.idea/
+
+# Build / dist
+build/
+dist/

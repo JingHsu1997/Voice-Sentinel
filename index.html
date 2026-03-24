@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOICE SENTINEL — AIAI WALKIE</title>
+<style>
+/* 核心樣式 - 保留原本設計 */
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0D1117;
+  color:#C9D1D9;
+  font-family:'Courier New',Courier,monospace;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+}
+.vsl-title{font-size:13px;font-weight:700;letter-spacing:8px;color:#C9D1D9;text-align:center;margin-bottom:4px}
+.vsl-sub{font-size:7px;letter-spacing:5px;color:#57606A;text-align:center;margin-bottom:24px}
+.vsl-main{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;justify-content:center}
+
+/* 數據面板 METRICS */
+.panel{width:148px;flex-shrink:0}
+.panel-title{font-size:7px;letter-spacing:4px;color:#57606A;margin-bottom:10px}
+.metric-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #21262D;font-size:9px;letter-spacing:1px}
+.metric-label{color:#57606A}
+.metric-val{font-weight:700;color:#C9D1D9}
+.pill{display:inline-block;padding:2px 6px;font-size:7px;letter-spacing:2px;font-weight:700;border:1px solid}
+.p-idle{color:#57606A;border-color:#30363D}
+.p-ok{color:#39d353;border-color:#39d353}
+.p-warn{color:#d29922;border-color:#d29922}
+.p-flat{color:#58a6ff;border-color:#58a6ff}
+.p-err{color:#f85149;border-color:#f85149}
+
+/* 控制面板 CONTROLS */
+.ctrl-panel{display:flex;flex-direction:column;align-items:center;gap:10px;padding-bottom:4px}
+#rec-btn{
+  width:76px;height:76px;
+  font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:2px;
+  cursor:pointer;border:2px solid #39d353;background:transparent;color:#39d353;
+  transition:all 0.1s;
+}
+#rec-btn:hover:not(:disabled){background:#39d353;color:#0D1117}
+#rec-btn.rec{border-color:#f85149;color:#f85149}
+#rec-btn.rec:hover{background:#f85149;color:#0D1117}
+#rec-btn.busy{border-color:#d29922;color:#d29922;cursor:default}
+#rec-btn:active:not(:disabled){transform:scale(0.96)}
+.ctrl-label{font-size:7px;letter-spacing:3px;color:#57606A;text-align:center}
+#countdown{font-size:28px;font-weight:700;color:#C9D1D9;min-height:34px;text-align:center;letter-spacing:2px}
+.badge{font-size:7px;letter-spacing:2px;padding:3px 8px;border:1px solid #30363D;color:#57606A}
+
+/* AI 對話面板 */
+.ai-panel{border:1px solid #21262D;padding:14px 16px;margin-top:14px;width:100%;max-width:520px}
+.ai-header{font-size:7px;letter-spacing:3px;color:#57606A;margin-bottom:8px;display:flex;justify-content:space-between}
+#ai-dot{width:6px;height:6px;background:#30363D;display:inline-block}
+#ai-text{font-size:11px;line-height:1.8;color:#57606A;min-height:36px}
+
+/* 雷達圖面板 */
+.radar-panel{width:148px;flex-shrink:0;display:flex;flex-direction:column;align-items:center}
+.radar-panel canvas{display:block}
+
+/* Baseline 引導覆蓋層 */
+#baseline-overlay{
+  position:fixed;inset:0;background:#0D1117;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;z-index:100;
+}
+#baseline-overlay.hidden{display:none}
+.bl-title{font-size:11px;letter-spacing:6px;color:#C9D1D9}
+.bl-sub{font-size:8px;letter-spacing:3px;color:#57606A;text-align:center;max-width:320px;line-height:2}
+#bl-btn{
+  width:96px;height:96px;
+  font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:2px;
+  cursor:pointer;border:2px solid #58a6ff;background:transparent;color:#58a6ff;
+  transition:all 0.1s;
+}
+#bl-btn:hover:not(:disabled){background:#58a6ff;color:#0D1117}
+#bl-btn.rec{border-color:#f85149;color:#f85149}
+#bl-btn.busy{border-color:#d29922;color:#d29922;cursor:default}
+#bl-countdown{font-size:28px;font-weight:700;color:#C9D1D9;min-height:34px;text-align:center}
+#bl-status{font-size:8px;letter-spacing:3px;color:#57606A}
+
+/* 動畫效果 - 保留原本定義 */
+.led-pulse{animation:lpulse 1.4s ease-in-out infinite}
+@keyframes lpulse{0%,100%{opacity:.5}50%{opacity:1}}
+.float{animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.cursor{display:inline-block;width:6px;height:12px;background:#C9D1D9;animation:blink .8s step-end infinite;vertical-align:text-bottom}
+@keyframes blink{50%{opacity:0}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- Baseline 引導覆蓋層 -->
+<div id="baseline-overlay">
+  <div class="bl-title">■ FIRST TIME SETUP ■</div>
+  <div class="bl-sub">
+    BASELINE NOT FOUND<br>
+    PLEASE RECORD 5 SECONDS OF YOUR VOICE<br>
+    IN A RESTED STATE TO CALIBRATE THE SYSTEM
+  </div>
+  <button id="bl-btn">[ REC ]</button>
+  <div id="bl-countdown"></div>
+  <div id="bl-status">PRESS REC TO BEGIN</div>
+</div>
+
+<div class="vsl-title">■ VOICE SENTINEL ■</div>
+<div class="vsl-sub">AIAI WALKIE UNIT v1.0</div>
+
+<div class="vsl-main">
+
+  <div class="panel">
+    <div class="panel-title">ANALYSIS</div>
+    <div class="metric-row"><span class="metric-label">RATE</span><span class="metric-val" id="m-rate">—</span></div>
+    <div class="metric-row"><span class="metric-label">PITCH σ</span><span class="metric-val" id="m-pitch">—</span></div>
+    <div class="metric-row"><span class="metric-label">JITTER</span><span class="metric-val" id="m-jitter">—</span></div>
+    <div class="metric-row"><span class="metric-label">STATE</span><span id="m-status"><span class="pill p-idle">IDLE</span></span></div>
+    <div style="height:14px"></div>
+    <div class="panel-title">LEGEND</div>
+    <div style="font-size:8px;line-height:2;letter-spacing:1px;color:#57606A">
+      <span style="color:#39d353">●</span> NORMAL<br>
+      <span style="color:#d29922">●</span> SLOW SPEECH<br>
+      <span style="color:#58a6ff">●</span> FLAT PITCH<br>
+      <span style="color:#f85149">●</span> RECORDING
+    </div>
+  </div>
+
+  <div class="radar-panel">
+    <div class="panel-title" style="font-size:7px;letter-spacing:4px;color:#57606A;margin-bottom:6px;align-self:flex-start">VITALS</div>
+    <canvas id="fatigueChart" width="148" height="148"></canvas>
+  </div>
+
+  <div class="float">
+  <svg width="200" height="270" viewBox="0 0 200 270" style="display:block;flex-shrink:0">
+    <rect x="98" y="3" width="4" height="10" fill="#57606A"/>
+    <rect x="95" y="2" width="10" height="3" fill="#57606A"/>
+    <circle id="antenna-led" cx="100" cy="2" r="5" fill="#39d353" class="led-pulse"/>
+    <rect x="70" y="12" width="60" height="4" fill="#7A4726"/>
+    <rect x="62" y="16" width="76" height="4" fill="#7A4726"/>
+    <rect x="56" y="20" width="88" height="4" fill="#7A4726"/>
+    <rect x="52" y="24" width="96" height="36" fill="#7A4726"/>
+    <rect x="56" y="60" width="88" height="4" fill="#7A4726"/>
+    <rect x="62" y="64" width="76" height="4" fill="#7A4726"/>
+    <rect x="70" y="68" width="60" height="4" fill="#7A4726"/>
+    <rect x="34" y="28" width="18" height="26" fill="#57606A"/>
+    <rect x="36" y="32" width="14" height="4" fill="#30363D"/>
+    <rect x="36" y="40" width="14" height="4" fill="#30363D"/>
+    <rect x="38" y="44" width="6" height="6" fill="#d29922" opacity="0.7"/>
+    <rect x="148" y="28" width="18" height="26" fill="#57606A"/>
+    <rect x="150" y="32" width="14" height="4" fill="#30363D"/>
+    <rect x="150" y="40" width="14" height="4" fill="#30363D"/>
+    <rect x="156" y="44" width="6" height="6" fill="#d29922" opacity="0.7"/>
+    <rect x="52" y="24" width="96" height="5" fill="#30363D"/>
+    <rect x="52" y="55" width="96" height="5" fill="#30363D"/>
+    <rect x="60" y="29" width="80" height="32" fill="#0D1117"/>
+    <rect x="60" y="29" width="80" height="1" fill="#21262D"/>
+    <rect x="60" y="29" width="1" height="32" fill="#21262D"/>
+    <g id="face-group"></g>
+    <rect x="68" y="61" width="64" height="12" fill="#9B6540"/>
+    <rect x="80" y="63" width="40" height="8" fill="#A3704A"/>
+    <rect x="96" y="63" width="8" height="5" fill="#5C3320"/>
+    <rect x="78" y="73" width="44" height="6" fill="#57606A"/>
+    <rect x="84" y="74" width="32" height="4" fill="#8B949E"/>
+    <rect x="60" y="79" width="80" height="54" fill="#57606A"/>
+    <rect x="60" y="79" width="5" height="54" fill="#8B949E"/>
+    <rect x="135" y="79" width="5" height="54" fill="#30363D"/>
+    <rect x="60" y="79" width="80" height="4" fill="#8B949E"/>
+    <rect x="70" y="88" width="60" height="26" fill="#0D1117"/>
+    <rect x="70" y="88" width="60" height="2" fill="#21262D"/>
+    <circle id="led-r" cx="84" cy="100" r="4" fill="#30363D"/>
+    <circle id="led-g" cx="100" cy="100" r="4" fill="#39d353" class="led-pulse"/>
+    <circle id="led-b" cx="116" cy="100" r="4" fill="#30363D"/>
+    <text x="100" y="113" font-family="Courier New" font-size="7" fill="#57606A" text-anchor="middle">VS-01</text>
+    <rect x="60" y="133" width="80" height="8" fill="#30363D"/>
+    <rect x="88" y="133" width="24" height="8" fill="#57606A"/>
+    <rect x="92" y="135" width="16" height="4" fill="#8B949E"/>
+    <rect x="64" y="141" width="72" height="12" fill="#57606A"/>
+    <rect x="40" y="82" width="18" height="38" fill="#7A4726"/>
+    <rect x="36" y="112" width="16" height="22" fill="#7A4726"/>
+    <rect x="34" y="130" width="20" height="6" fill="#57606A"/>
+    <rect x="36" y="136" width="12" height="8" fill="#7A4726"/>
+    <rect x="142" y="82" width="18" height="38" fill="#7A4726"/>
+    <rect x="148" y="112" width="16" height="22" fill="#7A4726"/>
+    <rect x="146" y="130" width="20" height="6" fill="#57606A"/>
+    <rect x="152" y="136" width="12" height="8" fill="#7A4726"/>
+    <rect x="26" y="153" width="148" height="6" fill="#30363D"/>
+    <rect x="30" y="154" width="140" height="4" fill="#57606A"/>
+    <rect x="48" y="159" width="10" height="58" fill="#57606A"/>
+    <rect x="54" y="159" width="2" height="58" fill="#8B949E"/>
+    <rect x="142" y="159" width="10" height="58" fill="#57606A"/>
+    <rect x="148" y="159" width="2" height="58" fill="#8B949E"/>
+    <rect x="44" y="185" width="112" height="6" fill="#30363D"/>
+    <rect x="46" y="186" width="108" height="4" fill="#57606A"/>
+    <rect x="50" y="163" width="4" height="4" fill="#8B949E"/>
+    <rect x="50" y="207" width="4" height="4" fill="#8B949E"/>
+    <rect x="146" y="163" width="4" height="4" fill="#8B949E"/>
+    <rect x="146" y="207" width="4" height="4" fill="#8B949E"/>
+    <rect x="20" y="217" width="160" height="8" fill="#30363D"/>
+    <rect x="24" y="218" width="152" height="6" fill="#57606A"/>
+    <rect x="22" y="225" width="156" height="20" fill="#30363D"/>
+    <rect x="22" y="225" width="156" height="3" fill="#57606A"/>
+    <rect x="30" y="231" width="20" height="3" fill="#57606A"/>
+    <rect x="30" y="237" width="20" height="3" fill="#57606A"/>
+    <rect x="150" y="231" width="20" height="3" fill="#57606A"/>
+    <rect x="150" y="237" width="20" height="3" fill="#57606A"/>
+    <rect x="76" y="230" width="48" height="12" fill="#0D1117"/>
+    <text x="100" y="239" font-family="Courier New" font-size="7" fill="#57606A" text-anchor="middle">WALKIE</text>
+    <rect x="24" y="244" width="22" height="22" fill="#1C2128"/>
+    <rect x="28" y="248" width="14" height="14" fill="#57606A"/>
+    <rect x="32" y="244" width="4" height="22" fill="#8B949E"/>
+    <rect x="34" y="252" width="4" height="4" fill="#1C2128"/>
+    <rect x="154" y="244" width="22" height="22" fill="#1C2128"/>
+    <rect x="158" y="248" width="14" height="14" fill="#57606A"/>
+    <rect x="162" y="244" width="4" height="22" fill="#8B949E"/>
+    <rect x="164" y="252" width="4" height="4" fill="#1C2128"/>
+  </svg>
+  </div>
+
+  <div class="ctrl-panel panel">
+    <div class="ctrl-label">RECORD</div>
+    <button id="rec-btn">[ REC ]</button>
+    <div id="countdown"></div>
+    <div class="badge" id="api-badge">API: localhost:5000</div>
+    <div style="height:6px"></div>
+    <div class="ctrl-label" id="state-text">READY</div>
+  </div>
+
+</div>
+
+<div class="ai-panel">
+  <div class="ai-header">
+    <span>SENTINEL AI</span>
+    <span id="ai-dot"></span>
+  </div>
+  <div id="ai-text" style="font-size:10px;letter-spacing:1px">AWAITING VOICE SAMPLE...</div>
+</div>
+
+<script>
+const API = 'http://localhost:5000';
+const EY = 43, MY = 52; // 眼睛和嘴巴的 Y 軸基準
+
+// 🛠️ 修正 1: 定義全域 sleep 函數，解決 ReferenceError
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// 像素風動態表情定義
+const faces = {
+  idle: c => `<rect x="82" y="38" width="8" height="8" fill="${c}"/><rect x="110" y="38" width="8" height="8" fill="${c}"/><rect x="84" y="${MY}" width="32" height="3" fill="${c}"/>`,
+  recording: c => `<circle cx="86" cy="${EY}" r="10" fill="${c}"/><circle cx="86" cy="${EY}" r="5" fill="#0D1117"/><circle cx="114" cy="${EY}" r="10" fill="${c}"/><circle cx="114" cy="${EY}" r="5" fill="#0D1117"/><rect x="82" y="50" width="36" height="10" fill="#0D1117"/><rect x="82" y="50" width="36" height="3" fill="${c}"/><rect x="82" y="57" width="36" height="3" fill="${c}"/><rect x="82" y="50" width="3" height="10" fill="${c}"/><rect x="115" y="50" width="3" height="10" fill="${c}"/>`,
+  analyzing: c => `<polygon points="86,34 95,43 86,52 77,43" fill="${c}"/><polygon points="114,34 123,43 114,52 105,43" fill="${c}"/><rect x="82" y="54" width="5" height="5" fill="${c}" opacity="0.5"/><rect x="89" y="54" width="5" height="5" fill="${c}" opacity="0.65"/><rect x="96" y="54" width="5" height="5" fill="${c}" opacity="0.8"/><rect x="103" y="54" width="5" height="5" fill="${c}" opacity="0.95"/>`,
+  normal: c => `<circle cx="86" cy="${EY}" r="9" fill="${c}"/><circle cx="86" cy="${EY}" r="4" fill="#0D1117"/><circle cx="114" cy="${EY}" r="9" fill="${c}"/><circle cx="114" cy="${EY}" r="4" fill="#0D1117"/><rect x="82" y="51" width="4" height="4" fill="${c}"/><rect x="86" y="53" width="8" height="4" fill="${c}"/><rect x="94" y="55" width="12" height="4" fill="${c}"/><rect x="106" y="53" width="8" height="4" fill="${c}"/><rect x="114" y="51" width="4" height="4" fill="${c}"/>`,
+  slow: c => `<circle cx="86" cy="${EY}" r="9" fill="${c}"/><rect x="77" y="29" width="18" height="14" fill="#0D1117"/><circle cx="114" cy="${EY}" r="9" fill="${c}"/><rect x="105" y="29" width="18" height="14" fill="#0D1117"/><rect x="84" y="${MY+2}" width="32" height="4" fill="${c}"/>`,
+  flat: c => `<rect x="76" y="35" width="20" height="16" fill="${c}"/><rect x="104" y="35" width="20" height="16" fill="${c}"/><rect x="82" y="${MY}" width="36" height="4" fill="${c}"/><rect x="82" y="${MY+6}" width="36" height="4" fill="${c}"/>`
+};
+
+// 更新機器人視覺狀態 (表情、LED燈)
+function setFace(state, color) {
+  const fg = document.getElementById('face-group');
+  // 清空背景並繪製新表情
+  fg.innerHTML = `<rect x="60" y="29" width="80" height="32" fill="#0D1117"/>` + (faces[state]||faces.idle)(color);
+  // 更新各處 LED
+  document.getElementById('antenna-led').setAttribute('fill', color);
+  document.getElementById('led-r').setAttribute('fill', state==='recording'?'#f85149':'#30363D');
+  document.getElementById('led-g').setAttribute('fill', state==='normal'?'#39d353':'#30363D');
+  document.getElementById('led-b').setAttribute('fill', state==='flat'?'#58a6ff':'#30363D');
+}
+
+// 更新數據面板的狀態藥丸 (Pill)
+function setStatus(txt, cls) {
+  document.getElementById('m-status').innerHTML = `<span class="pill ${cls}">${txt}</span>`;
+}
+
+// AI 打字機效果
+function typeAI(txt, active) {
+  const el = document.getElementById('ai-text');
+  el.style.color = active ? '#C9D1D9' : '#57606A';
+  document.getElementById('ai-dot').style.background = active ? '#39d353' : '#30363D';
+  el.innerHTML = '';
+  if (!txt) return;
+  const cur = document.createElement('span');
+  cur.className = 'cursor';
+  el.appendChild(cur);
+  let i = 0;
+  const t = setInterval(() => {
+    // 修正: 確保 txt 存在才執行
+    if (txt && i < txt.length) {
+        el.insertBefore(document.createTextNode(txt[i++]), cur);
+    } else {
+        clearInterval(t);
+        if (cur.parentNode) cur.remove();
+    }
+  }, 22);
+}
+
+// ── 雷達圖 Radar Chart 邏輯 ────────────────────────────────────────────
+let fatigueChart;
+function initRadarChart() {
+    const ctx = document.getElementById('fatigueChart').getContext('2d');
+    fatigueChart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            // 標籤對應: 語速, 音高穩定性, Jitter(反轉), Shimmer(反轉), HNR
+            labels: ['Rate', 'Pitch Std', 'Jitter (inv)', 'Shimmer (inv)', 'HNR'],
+            datasets: [{
+                data: [0, 0, 0, 0, 0],
+                backgroundColor: 'rgba(57, 211, 83, 0.2)',
+                borderColor: '#39d353',
+                pointBackgroundColor: '#39d353',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                r: {
+                    min: 0, max: 100,
+                    grid: { color: '#30363d' },
+                    angleLines: { color: '#30363d' },
+                    ticks: { display: false },
+                    pointLabels: { color: '#57606A', font: { size: 8, family: 'Courier New' } }
+                }
+            },
+            plugins: { legend: { display: false } },
+            animation: { duration: 400 }
+        }
+    });
+}
+
+// 錄音成功後更新所有 UI 
+function updateUI(data) {
+    // 1. 更新文本數據
+    document.getElementById('m-rate').innerText = data.rate.toFixed(1) + '/s';
+    // 🛠️ 安全處理: 確保 jitter 存在
+    const jitterVal = data.jitter ? (data.jitter * 100).toFixed(2) : '0';
+    document.getElementById('m-jitter').innerText = jitterVal + '%';
+    
+    // 2. 將分析指標映射為 0-100 的分數用於雷達圖
+    // 注意: Jitter 和 Shimmer 是越低越好，所以需要反轉 (100 - 分數)
+    const scores = [
+        Math.min(100, (data.rate / 3.5) * 100),         // 語速
+        Math.min(100, (data.pitch_std / 20) * 100),     // 穩定性
+        Math.max(0, 100 - (data.jitter * 4000 || 0)),   // Jitter (反轉)
+        Math.max(0, 100 - (data.shimmer * 1000 || 0)),  // Shimmer (反轉)
+        Math.min(100, (data.hnr / 20) * 100)            // HNR (越高越好)
+    ];
+    
+    // 3. 更新雷達圖數據與顏色
+    fatigueChart.data.datasets[0].data = scores;
+    const chartColor = data.abnormal ? '#f85149' : '#39d353'; // 異常則變紅
+    fatigueChart.data.datasets[0].borderColor = chartColor;
+    fatigueChart.data.datasets[0].backgroundColor = data.abnormal
+        ? 'rgba(248, 81, 73, 0.2)' : 'rgba(57, 211, 83, 0.2)';
+    fatigueChart.data.datasets[0].pointBackgroundColor = chartColor;
+    fatigueChart.update();
+    
+    // 4. AI 字幕回應
+    typeAI(data.ai_response, true);
+}
+
+// ── Baseline 引導流程 ────────────────────────────────────────────
+async function checkBaseline() {
+  try {
+    const res = await fetch(`${API}/api/baseline/status`);
+    const data = await res.json();
+    if (data.exists) {
+      document.getElementById('baseline-overlay').classList.add('hidden');
+    }
+    // if not exists, overlay stays visible
+  } catch (e) {
+    // server not ready yet, keep overlay
+  }
+}
+
+(function initBaselineRecorder() {
+  const btn = document.getElementById('bl-btn');
+  const cd = document.getElementById('bl-countdown');
+  const st = document.getElementById('bl-status');
+  let busy = false;
+
+  btn.addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
+    btn.className = 'rec';
+    btn.textContent = '[...]';
+    st.textContent = 'RECORDING...';
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus']
+        .find(m => MediaRecorder.isTypeSupported(m)) || '';
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      const chunks = [];
+      rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      rec.start(100);
+
+      for (let i = 5; i >= 1; i--) { cd.textContent = i; await sleep(1000); }
+      cd.textContent = '';
+      rec.stop();
+      stream.getTracks().forEach(t => t.stop());
+      await new Promise(r => { rec.onstop = r; });
+
+      btn.className = 'busy';
+      st.textContent = 'SAVING...';
+      const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+      const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+      const fd = new FormData();
+      fd.append('audio', blob, `baseline.${ext}`);
+
+      const res = await fetch(`${API}/api/baseline/record`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.status !== 'success') throw new Error(data.message);
+
+      st.textContent = 'BASELINE SAVED ✓';
+      await sleep(1200);
+      document.getElementById('baseline-overlay').classList.add('hidden');
+    } catch (e) {
+      st.textContent = 'ERROR: ' + e.message;
+      btn.className = '';
+      btn.textContent = '[ REC ]';
+      busy = false;
+    }
+  });
+})();
+
+// ── 錄音與主流程邏輯 ──────────────────────────────────────────────
+let running = false, mediaRec = null, chunks = [];
+
+document.getElementById('rec-btn').addEventListener('click', async () => {
+  if (running) return;
+  running = true;
+  const btn = document.getElementById('rec-btn');
+  const cd = document.getElementById('countdown');
+  const st = document.getElementById('state-text');
+
+  // UI 重置
+  document.getElementById('m-rate').textContent = '—';
+  document.getElementById('m-pitch').textContent = '—';
+  document.getElementById('m-jitter').textContent = '—';
+  setStatus('IDLE', 'p-idle');
+  typeAI('LISTENING...', false);
+
+  try {
+    // 請求麥克風權限
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    // 探測瀏覽器支持的 MIME 類型
+    const mimeType = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus'
+    ].find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+    mediaRec = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+    chunks = [];
+    mediaRec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+    // === 狀態 1: 錄音中 ===
+    btn.textContent = '[STOP]';
+    btn.className = 'rec';
+    setFace('recording', '#f85149'); // 表情變紅
+    setStatus('REC', 'p-err');
+    st.textContent = 'RECORDING...';
+
+    mediaRec.start(100); // 每 100ms 收集一次數據
+
+    // 5秒倒數 (現在 sleep 可以運作了！)
+    for (let i = 5; i >= 1; i--) { 
+        cd.textContent = i; 
+        await sleep(1000); 
+    }
+    cd.textContent = '';
+
+    // 停止錄音
+    mediaRec.stop();
+    stream.getTracks().forEach(t => t.stop()); // 關閉麥克風
+
+    // 等待錄音數據最終封裝
+    await new Promise(r => { mediaRec.onstop = r; });
+
+    // === 狀態 2: 分析中 ===
+    btn.textContent = '[...]';
+    btn.className = 'busy';
+    setFace('analyzing', '#d29922'); // 表情變黃
+    setStatus('ANALYZING', 'p-warn');
+    st.textContent = 'ANALYZING...';
+
+    // 準備上傳數據
+    let ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+    const formData = new FormData();
+    
+    // 🛠️ 修正 2: 將鍵名從 'file' 改為 'audio'，以對接後端 app.py 的 request.files['audio']
+    formData.append('audio', blob, `recording.${ext}`); 
+    formData.append('baseline_rate', '3.0'); // 傳遞基準值
+    formData.append('include_ai', 'true');
+
+    // 發送請求到 Flask API
+    const res = await fetch(`${API}/api/analyze`, {
+      method: 'POST',
+      body: formData
+      // 注意: 不要手動設置 Content-Type 標頭，讓瀏覽器自動處理 FormData 邊界
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Server error (${res.status})`);
+    }
+
+    const data = await res.json();
+    if (data.status !== 'success') throw new Error(data.message || 'Unknown error');
+
+    // === 狀態 3: 顯示結果 ===
+    
+    // 更新數據面板文本 (這裡單獨更新 Pitch σ)
+    document.getElementById('m-pitch').textContent = (data.pitch_std || 0).toFixed(1) + 'Hz';
+
+    // 根據結果決定機器人表情和 UI 顏色
+    let faceState, color, statusTxt, statusCls;
+    if (!data.abnormal) {
+      // 健康狀態
+      faceState='normal'; color='#39d353'; statusTxt='NORMAL'; statusCls='p-ok';
+      st.textContent='HEALTHY';
+    } else if (data.rate < 1.8) {
+      // 異常: 語速過慢 (疲勞)
+      faceState='slow'; color='#d29922'; statusTxt='SLOW'; statusCls='p-warn';
+      st.textContent='FATIGUED';
+    } else {
+      // 異常: 音高平淡 (無精打采)
+      faceState='flat'; color='#58a6ff'; statusTxt='FLAT'; statusCls='p-flat';
+      st.textContent='MONOTONE';
+    }
+
+    setFace(faceState, color);
+    setStatus(statusTxt, statusCls);
+    updateUI(data); // 更新雷達圖和 AI 回應
+
+  } catch (err) {
+    // === 狀態 4: 錯誤處理 ===
+    console.error(err);
+    setFace('idle', '#57606A'); // 恢復 Idle
+    setStatus('ERROR', 'p-err');
+    st.textContent = 'ERROR';
+    typeAI('SIGNAL LOST: ' + err.message, false);
+    cd.textContent = '';
+  }
+
+  // 恢復按鈕狀態
+  btn.textContent = '[ REC ]';
+  btn.className = '';
+  running = false;
+});
+
+// ── 初始化 ────────────────────────────────────────────────────────
+initRadarChart();
+setFace('idle', '#57606A');
+typeAI('', false);
+checkBaseline();
+</script>
+</body>
+</html>
