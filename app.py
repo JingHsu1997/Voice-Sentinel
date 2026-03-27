@@ -34,7 +34,7 @@ import tempfile
 from google import genai as _genai_module
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from voice_sentinel import VoiceSentinel
+from voice_sentinel import VoiceSentinel, check_snr_and_score
 from dotenv import load_dotenv
 
 # Flask App Configuration
@@ -47,26 +47,12 @@ UPLOAD_FOLDER = tempfile.gettempdir()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 
-sentinel = VoiceSentinel()
-
-
 def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 load_dotenv()
-_api_key = os.getenv("GOOGLE_API_KEY")
-_genai_client = _genai_module.Client(api_key=_api_key) if _api_key else None
-
-
-def _generate_ai(prompt: str) -> str:
-    if not _genai_client:
-        raise RuntimeError("No API key")
-    return _genai_client.models.generate_content(
-        model="gemini-2.0-flash", contents=prompt
-    ).text.strip()
-
-
+RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "recordings")
 BASELINE_PATH = os.path.join(RECORDINGS_DIR, "baseline.wav")
 
 # Local engine instance
@@ -118,28 +104,23 @@ def analyze():
         # Load baseline if available
         if os.path.exists(BASELINE_PATH) and sentinel._baseline_vector is None:
             sentinel.set_baseline(BASELINE_PATH)
-        # 1. Run scientific local analysis
+        # 1. Run scientific local analysis (Vc-based)
         metrics = sentinel.analyze_health(wav_path)
 
-        # 2. Build AI Prompt based on metrics
-        # We pass the data to Gemini to get a natural response
-        rate = metrics.get('rate', 0)
-        jitter = metrics.get('jitter', 0)
-        hnr = metrics.get('hnr', 0)
+        # 2. Local scoring (already included in metrics from analyze_health)
+        score = metrics.get('score')
+        need_ai = metrics.get('need_ai', metrics.get('abnormal', False))
+        summary = metrics.get('bio_summary', '')
 
-        status_str = "fatigued/strained" if metrics["abnormal"] else "healthy"
-        prompt = (
-            f"As a health guardian AI, analyze these voice metrics: "
-            f"Speech Rate: {rate}, Jitter: {jitter}, HNR: {hnr}. "
-            f"The user sounds {status_str}. Provide a short (20 words), supportive response "
-            f"encouraging them based on these findings."
-        )
-        
-        # Generate AI response (fallback to static text if fails)
-        try:
-            ai_reply = _generate_ai(prompt)
-        except:
-            ai_reply = "Analysis complete. You seem a bit tired, please rest." if metrics["abnormal"] else "You sound great!"
+        # 3. AI only when needed
+        if need_ai:
+            try:
+                import asyncio
+                ai_reply = asyncio.run(sentinel.get_ai_response(metrics))
+            except Exception:
+                ai_reply = sentinel.fallback_response(metrics)
+        else:
+            ai_reply = sentinel.fallback_response(metrics)
 
         return jsonify({
             "status": "success",
@@ -218,13 +199,10 @@ def record_and_analyze():
             pass
         
         return jsonify({
-    "status": "success",
-    "rate": round(float(analysis_result['rate']), 2),
-    "pitch_std": round(float(analysis_result['pitch_std']), 2),
-    "abnormal": bool(analysis_result['abnormal']),
-    "msg": analysis_result['msg'],
-    "ai_response": ai_response or ""
-}), 200
+            "status": "success",
+            **analysis_result,
+            "ai_response": ai_response or ""
+        }), 200
         
     except Exception as e:
         print(f"[ERROR] Record and analyze failed: {e}")

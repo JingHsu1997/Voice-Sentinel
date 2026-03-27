@@ -86,35 +86,52 @@ Starts a Flask server. Open `index.html` in a browser to use the web frontend.
 
 ## How It Works
 
-### Acoustic feature extraction
+### Fatigue detection — Voice Correlation (Vc)
 
-The application extracts two primary features from each recording:
+The primary fatigue metric is **Voice Correlation (Vc)**, based on the method proposed by Greeley et al. in *"Fatigue Estimation Using Voice Analysis"* (2007).
 
-- **Speech rate (`rate`)** — the number of voiced segments per second, estimated by detecting energy onsets in the audio signal. A higher value indicates faster, more energetic speech.
-- **Pitch standard deviation (`pitch_std`)** — the standard deviation of the fundamental frequency (F0) across voiced frames, measured in Hz. A higher value indicates greater pitch variation, which correlates with vocal expressiveness and alertness.
+A 36-dimensional characteristic voice vector is extracted from each recording: 12 MFCCs + 12 delta-MFCCs + 12 delta-delta-MFCCs, mean-pooled over frames using a 25 ms Hamming window at 16 kHz. Vc is then computed as the Pearson correlation between the current recording's vector and a rested-state baseline.
 
-### Anomaly detection
+| Vc value | Interpretation |
+|----------|----------------|
+| ≥ 0.90 | Rested |
+| 0.60 – 0.89 | Mild fatigue (~27 h awake) |
+| < 0.60 | Severe fatigue (~66 h awake) |
 
-A recording is flagged as abnormal when either of the following conditions is met:
+The first recording automatically becomes the baseline. A dedicated rested-state baseline can be set via `--baseline`.
 
-| Condition | Threshold | Interpretation |
-|-----------|-----------|----------------|
-| `rate` below baseline | < 70% of baseline | Possible fatigue or reduced alertness |
-| `pitch_std` below floor | < 10 Hz | Flat, monotone delivery; low vocal energy |
+### Dysphonia parameters — Jitter, Shimmer, HNR
 
-Default baseline values are `rate = 3.0` and `pitch = 120 Hz`. These can be personalized by running several recordings during a well-rested state and computing the average.
+Three acoustic perturbation parameters are computed as supplementary reference metrics, based on the formulas and pathological thresholds defined in Teixeira et al., *"Vocal Acoustic Analysis — Jitter, Shimmer and HNR Parameters"* (2013), and the speaker recognition application described in Farrús et al., *"Jitter and Shimmer Measurements for Speaker Recognition"* (2007).
+
+| Parameter | Formula | Pathological threshold |
+|-----------|---------|------------------------|
+| **Jitter (local)** | `mean(|T_i − T_{i+1}|) / mean(T) × 100` | > 1.04% |
+| **Shimmer (local)** | `mean(|A_i − A_{i+1}|) / mean(A) × 100` | > 3.81% |
+| **HNR** | `10 · log₁₀(AC(T) / (AC(0) − AC(T)))` | < 7 dB |
+
+> These parameters are displayed for reference only. Because they are designed for sustained vowel phonation rather than natural continuous speech, they are not used in the abnormality classification.
 
 ### AI recommendation
 
-When a Google Gemini API key is configured, the analysis result is sent to the model along with a structured prompt. The model returns a short, context-aware recommendation based on the detected speech pattern. The response is then converted to speech via text-to-speech and played back.
+When a Google Gemini API key is configured, the Vc score and fatigue level are sent to the model with a structured prompt. The model returns a short, empathetic recommendation in under 60 words. The response is converted to speech via Edge TTS and played back.
 
 ### Output format
 
 ```json
 {
-  "rate": 3.5,
-  "pitch_std": 45.3,
-  "abnormal": false,
-  "msg": "Normal"
+  "vc": 0.87,
+  "fatigue_level": "Mild fatigue",
+  "jitter_local": 0.8321,
+  "shimmer_local": 2.1045,
+  "hnr_db": 12.4,
+  "abnormal": true,
+  "msg": "Mild fatigue detected (Vc ≈ 0.82 at ~27 h awake)"
 }
 ```
+
+## References
+
+- Greeley, H. P., et al. (2007). *Fatigue Estimation Using Voice Analysis*.
+- Teixeira, J. P., et al. (2013). *Vocal Acoustic Analysis — Jitter, Shimmer and HNR Parameters*.
+- Farrús, M., et al. (2007). *Jitter and Shimmer Measurements for Speaker Recognition*.

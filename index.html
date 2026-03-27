@@ -118,6 +118,7 @@ body{
     <div class="metric-row"><span class="metric-label">RATE</span><span class="metric-val" id="m-rate">—</span></div>
     <div class="metric-row"><span class="metric-label">PITCH σ</span><span class="metric-val" id="m-pitch">—</span></div>
     <div class="metric-row"><span class="metric-label">JITTER</span><span class="metric-val" id="m-jitter">—</span></div>
+    <div class="metric-row"><span class="metric-label">SCORE</span><span class="metric-val" id="m-score">—</span></div>
     <div class="metric-row"><span class="metric-label">STATE</span><span id="m-status"><span class="pill p-idle">IDLE</span></span></div>
     <div style="height:14px"></div>
     <div class="panel-title">LEGEND</div>
@@ -355,7 +356,11 @@ function updateUI(data) {
     fatigueChart.data.datasets[0].pointBackgroundColor = chartColor;
     fatigueChart.update();
     
-    // 4. AI 字幕回應
+    // 4. 分數
+    const score = data.score != null ? data.score + '/100' : '—';
+    document.getElementById('m-score').textContent = score;
+
+    // 5. AI 字幕回應
     typeAI(data.ai_response, true);
 }
 
@@ -438,6 +443,7 @@ document.getElementById('rec-btn').addEventListener('click', async () => {
   document.getElementById('m-rate').textContent = '—';
   document.getElementById('m-pitch').textContent = '—';
   document.getElementById('m-jitter').textContent = '—';
+  document.getElementById('m-score').textContent = '—';
   setStatus('IDLE', 'p-idle');
   typeAI('LISTENING...', false);
 

@@ -1,324 +1,155 @@
-# Voice Sentinel - 後端 API 文檔
+# Voice Sentinel — API Documentation
 
-## 📋 系統概述
+## System Overview
 
-**項目名稱：** Voice Sentinel  
-**描述：** 語音健康監測應用，分析話速和音高穩定度，使用 Google Gemini AI 生成建議  
-**技術棧：** Python + FastAPI (可選) 或 CLI  
-**當前狀態：** CLI 應用，需要前端介面整合
+**Project:** Voice Sentinel  
+**Description:** Voice health monitoring app that detects fatigue via Voice Correlation (Vc) and dysphonia parameters, with optional Google Gemini AI recommendations.  
+**Stack:** Python + Flask REST API + HTML/JS frontend
 
 ---
 
-## 🏗️ 核心模組
+## Core Module
 
-### 1. **VoiceSentinel 類** (`voice_sentinel.py`)
+### `VoiceSentinel` class (`voice_sentinel.py`)
 
-主要功能類，負責音頻錄製、分析和 AI 生成。
-
-#### 初始化參數
 ```python
 VoiceSentinel(
-    baseline_rate: float = 3.0,          # 基準語速（語句/秒）
-    baseline_pitch: float = 120,         # 基準音高（Hz）
-    test: bool = False                   # 測試模式（使用合成音頻）
+    baseline_rate: float = 3.0,   # legacy param, kept for compatibility
+    baseline_pitch: float = 120.0, # legacy param, kept for compatibility
+    test: bool = False             # test mode — uses synthetic audio, no mic/API needed
 )
 ```
 
-#### 方法 1: 錄製音頻
-```python
-def record_audio() -> str
-```
-- **功能：** 錄製 5 秒的實時語音或合成測試音頻
-- **返回值：** 音訊檔案路徑 (`input.wav`)
-- **測試模式：** 自動生成合成音頻，無需麥克風
+#### `set_baseline(file_path: str)`
+Loads a rested-state WAV file and stores its 36-D MFCC vector as the Vc baseline.
 
-#### 方法 2: 分析語音健康
-```python
-def analyze_health(file_path: str) -> dict
-```
-- **功能：** 分析音頻的語速和音高特徵
-- **輸入：** 音訊檔案路徑 (`.wav`, `.mp3`, `.flac`, `.ogg`)
-- **輸出：**
+#### `analyze_health(file_path: str) -> dict`
+Main analysis method. Returns:
 ```json
 {
-  "rate": 3.5,                          # 語速（語句/秒）0-10
-  "pitch_std": 45.3,                    # 音高標準差（越高越波動）0-200
-  "abnormal": false,                    # 是否異常狀態
-  "msg": "Normal state detected"        # 診斷訊息
+  "vc": 0.87,
+  "fatigue_level": "Mild fatigue",
+  "jitter_local": 0.8321,
+  "shimmer_local": 2.1045,
+  "hnr_db": 12.4,
+  "pitch_sd": 34.5,
+  "pause_ratio": 0.12,
+  "score": 45.0,
+  "need_ai": true,
+  "bio_summary": "Composite score: 45.0/100 (Moderate fatigue)\nAlerts: Weak amplitude control",
+  "abnormal": true,
+  "msg": "Mild fatigue detected (Vc ≈ 0.82 at ~27 h awake)",
+  "baseline_set": false
 }
 ```
 
-#### 方法 3: 獲取 AI 回應
-```python
-async def get_ai_response(analysis: dict) -> str
-```
-- **功能：** 使用 Google Gemini 根據分析結果生成建議
-- **輸入：** `analyze_health()` 的返回結果
-- **輸出：** AI 生成的建議文本（50 字以內）
-- **示例：**
-```
-"You sound a bit tired. Please take a break and drink some water."
-```
+Fatigue classification (Vc thresholds, Greeley et al. 2007):
 
-#### 方法 4: 文字轉語音播放
-```python
-async def speak(text: str) -> None
-```
-- **功能：** 使用 Edge TTS 播放 AI 回應
-- **輸入：** 要播放的文本
-- **輸出：** 生成 `output.mp3` 並自動播放（Windows）
+| Vc | Level |
+|----|-------|
+| ≥ 0.90 | Rested |
+| 0.60 – 0.89 | Mild fatigue |
+| < 0.60 | Severe fatigue |
+
+#### `async get_ai_response(analysis: dict) -> str`
+Calls Gemini 2.5 Flash with the Vc result. Returns a short empathetic recommendation (≤ 60 words). Falls back to a local string if API is unavailable or `need_ai` is False.
+
+#### `async speak(text: str)`
+Converts text to speech via Edge TTS (`en-US-AriaNeural`) and plays it back with pygame.
+
+#### `record_audio() -> str`
+Records 5 seconds from the microphone (or generates synthetic audio in test mode). Returns the saved WAV path.
 
 ---
 
-## 📊 數據結構
+## REST API Endpoints (`app.py`)
 
-### 分析結果對象
-```typescript
-interface AnalysisResult {
-  rate: number;              // 語速 (語句/秒)
-  pitch_std: number;         // 音高標準差
-  abnormal: boolean;         // 是否異常
-  msg: string;              // 診斷訊息
-}
+### `GET /api/baseline/status`
+Returns whether a baseline file exists.
+```json
+{ "exists": true }
 ```
 
-### 異常判定規則
-| 條件 | 判定 | 建議 |
-|------|------|------|
-| `rate < baseline_rate × 0.6` | 語速過慢 | 休息/進食 |
-| `pitch_std < 10` | 音高平板 | 進食/飲水 |
-| 兩者都正常 | ✅ 正常 | 保持良好狀態 |
+### `POST /api/baseline/record`
+Upload a rested-state audio recording to set as baseline.
+- Body: `multipart/form-data`, field `audio` (webm/wav/ogg)
+- Response: `{ "status": "success", "message": "Baseline saved" }`
 
-### 基準值建議
-- **語速基準：** 3.0-3.5 語句/秒（中文自然語速）
-- **音高基準：** 120-140 Hz（因人而異）
+### `POST /api/analyze`
+Upload an audio file for full analysis + AI response.
+- Body: `multipart/form-data`, field `audio`
+- Response: all fields from `analyze_health()` plus `"ai_response": "..."`
+
+### `POST /api/record-and-analyze`
+Accepts base64-encoded WAV audio for analysis.
+```json
+{
+  "audio_data": "<base64 WAV>",
+  "baseline_rate": 3.0,
+  "include_ai": true
+}
+```
+Response: all fields from `analyze_health()` plus `"ai_response": "..."`
+
+### `GET /api/test`
+Returns mock analysis data for frontend testing (no audio required).
+
+### `GET /api/health`
+Health check. Returns `{ "status": "ok" }`.
 
 ---
 
-## 🚀 使用流程
+## Configuration
 
-### 流程圖
+### `.env`
 ```
-1. 用戶啟動 → 選擇模式
-   ├─ 測試模式：無需麥克風，使用合成音頻
-   └─ 實時模式：需要麥克風
-
-2. 錄製/上傳音頻
-   └─ record_audio() 或 上傳音檔
-
-3. 分析語音特徵
-   └─ analyze_health(file_path) → AnalysisResult
-
-4. 生成 AI 建議
-   └─ await get_ai_response(analysis) → str
-
-5. 播放 AI 回應
-   └─ await speak(response_text)
-```
-
----
-
-## 🎯 前端集成指南
-
-### 建議的 API 端點（如果轉為 REST API）
-
-#### 1. 分析音頻
-```
-POST /api/analyze
-Content-Type: multipart/form-data
-
-Body:
-  - file: [Audio File]
-  - baseline_rate: 3.0 (optional)
-  - baseline_pitch: 120 (optional)
-
-Response:
-{
-  "rate": 3.5,
-  "pitch_std": 45.3,
-  "abnormal": false,
-  "msg": "Normal state detected",
-  "ai_response": "You sound great! Keep it up."
-}
-```
-
-#### 2. 獲取診斷建議
-```
-POST /api/diagnose
-Content-Type: application/json
-
-Body:
-{
-  "rate": 3.5,
-  "pitch_std": 45.3,
-  "abnormal": false,
-  "msg": "Normal state detected"
-}
-
-Response:
-{
-  "ai_suggestion": "You sound great! Keep it up.",
-  "audio_url": "/files/output.mp3"
-}
-```
-
-#### 3. 錄音並分析
-```
-POST /api/record-and-analyze
-Content-Type: application/json
-
-Body:
-{
-  "duration": 5,
-  "test_mode": false
-}
-
-Response:
-{
-  "rate": 3.5,
-  "pitch_std": 45.3,
-  "abnormal": false,
-  "msg": "Normal state detected",
-  "ai_response": "You sound great!",
-  "audio_url": "/files/input.wav"
-}
-```
-
----
-
-## 🔧 配置參數
-
-### 環境變數 (`.env`)
-```env
 GOOGLE_API_KEY=your_api_key_here
 ```
 
-### 常量（可配置）
+### Constants (`voice_sentinel.py`)
 ```python
-FS = 16000              # 採樣率
-DURATION = 5            # 預設錄音時長（秒）
-FILENAME = "input.wav"  # 輸入音訊檔案名
+FS = 16000       # sample rate (Hz)
+DURATION = 5     # recording length (seconds)
 ```
 
 ---
 
-## 📁 文件結構
+## File Structure
 
 ```
-├── voice_sentinel.py        # 核心 VoiceSentinel 類
-├── analyze_audio.py         # CLI 音檔分析工具
-├── quickstart.py           # 互動式選單
-├── result_interpreter.py   # 結果演示工具
-├── requirements.txt        # 依賴列表
-├── .env                   # API Key 設定
-└── API_DOCUMENTATION.md   # 本文件
-```
-
----
-
-## 📦 依賴清單
-
-```
-numpy
-librosa           # 音頻分析
-sounddevice       # 麥克風錄音
-soundfile         # 音檔讀寫
-edge-tts          # 文字轉語音
-google-generativeai  # Gemini API
-python-dotenv     # 環境變數
+├── voice_sentinel.py      # Core VoiceSentinel class
+├── analyze_audio.py       # CLI tool for analyzing existing audio files
+├── start.py               # Interactive CLI session runner
+├── app.py                 # Flask REST API server
+├── index.html             # Web frontend
+├── requirements.txt       # Python dependencies
+├── .env                   # API key
+└── docs/
+    └── API_DOCUMENTATION.md
 ```
 
 ---
 
-## ⚠️ 錯誤處理
+## Dependencies
 
-### 常見異常
-| 錯誤 | 原因 | 解決方案 |
-|------|------|--------|
-| `No module named 'dotenv'` | 缺少依賴 | `pip install python-dotenv` |
-| `ModuleNotFoundError: No module named 'google'` | 缺少 Gemini SDK | `pip install google-generativeai` |
-| `GOOGLE_API_KEY not found` | 未設定 API Key | 編輯 `.env` 檔案 |
-| `sounddevice failed` | 麥克風未連接 | 使用測試模式或上傳音檔 |
-
-### Fallback 機制
-- 如果 Gemini API 失敗，使用預設回應
-- 如果 TTS 失敗，直接顯示文本
-- 測試模式永遠有效（無需網路和 API）
-
----
-
-## 🎨 UI 建議
-
-### 推薦的前端功能
-
-#### 首頁
-- [ ] 選擇模式按鈕（測試 / 實時 / 上傳檔案）
-- [ ] 基準值設定（語速、音高）
-
-#### 錄音介面
-- [ ] 開始/停止錄音按鈕
-- [ ] 倒計時顯示
-- [ ] 實時波形圖
-
-#### 結果展示
-- [ ] 分析結果表格（語速、音高、狀態）
-- [ ] 狀態指示（✅ 正常 / ⚠️ 異常）
-- [ ] AI 建議展示
-- [ ] 播放 AI 回應音頻
-
-#### 歷史記錄
-- [ ] 保存分析結果列表
-- [ ] 對比不同時間的數據
-
----
-
-## 🧪 測試建議
-
-### 測試用例
-```python
-# 測試模式示例
-sentinel = VoiceSentinel(test=True)
-audio = sentinel.record_audio()  # 生成合成音頻
-result = sentinel.analyze_health(audio)
-print(result)
 ```
-
-### 預期輸出
-```json
-{
-  "rate": 2.5,
-  "pitch_std": 35.0,
-  "abnormal": false,
-  "msg": "Normal state detected"
-}
+numpy, librosa, sounddevice, soundfile
+praat-parselmouth          # Jitter / Shimmer / Pitch via Praat
+google-genai               # Gemini API
+edge-tts, pygame           # TTS playback
+flask, flask-cors          # REST API
+static_ffmpeg              # Audio format conversion
+python-dotenv
 ```
 
 ---
 
-## 📞 集成支持
+## Error Handling
 
-### 快速開始清單
-- [ ] 安裝 Python 依賴：`pip install -r requirements.txt`
-- [ ] 設定 Google API Key 到 `.env` 檔案
-- [ ] 測試後端：`python voice_sentinel.py --test`
-- [ ] 根據本文檔設計前端 UI
-- [ ] 將前端與後端整合（REST API 或直接調用）
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Gemini not initialized` | Missing API key | Add `GOOGLE_API_KEY` to `.env` |
+| `sounddevice failed` | No microphone | Use `--test` mode or upload a file |
+| `Audio conversion failed` | ffmpeg error | Check input file format |
 
-### 推薦的前端框架
-- **Web：** React / Vue.js / Next.js
-- **Desktop：** Electron / Tauri
-- **Mobile：** React Native / Flutter
-
----
-
-## 📝 版本日誌
-
-- **v1.0** (2026-03-22)
-  - 核心分析功能完成
-  - Gemini AI 整合
-  - TTS 播放功能
-  - 文件可視化基準
-
----
-
-此文檔可直接提交給前端開發者或 Claude AI。祝你集成順利！ 🚀
+Fallback chain: Gemini timeout → `fallback_response()` → local string based on `abnormal` flag.
