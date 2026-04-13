@@ -1,10 +1,63 @@
+
+
 # Voice Sentinel
 
-A voice health monitoring application that records audio, analyzes speech rate and pitch stability, and generates AI-powered recommendations using Google Gemini.
+**Voice Sentinel** helps you monitor your vocal health and fatigue using your own voice. Record or upload speech, get instant analysis, and receive AI-powered recommendations. Perfect for teachers, broadcasters, call center staff, singers, or anyone who relies on their voice.
 
 ---
 
-## Installation
+## Features
+
+- **Fatigue detection** from your voice
+- **Jitter, Shimmer, HNR** acoustic analysis
+- **AI recommendations** (Google Gemini integration)
+- **Easy-to-use**: microphone, audio file, or web interface
+
+---
+
+## Quickstart
+
+1. **Install dependencies**
+  ```powershell
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+2. *(Optional)* Add your Google API key to `.env` for AI recommendations:
+  ```env
+  GOOGLE_API_KEY=your_api_key_here
+  ```
+3. **Run a test analysis** (no mic or API key needed):
+  ```powershell
+  python voice_sentinel.py --test
+  ```
+4. **Live analysis** (microphone required):
+  ```powershell
+  python voice_sentinel.py
+  ```
+5. **Analyze an audio file**:
+  ```powershell
+  python analyze_audio.py recordings/your_voice.wav
+  ```
+6. **Web interface**:
+  ```powershell
+  python app.py
+  ```
+
+---
+
+## How It Works
+
+Voice Sentinel analyzes your speech for signs of fatigue using the Voice Correlation (Vc) metric, and provides additional acoustic parameters (Jitter, Shimmer, HNR) for reference. With a Google Gemini API key, you also get a short, empathetic AI recommendation based on your results.
+
+For technical details and algorithm references, see [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md).
+
+---
+
+## License
+
+MIT
 
 **Requirements:** Python 3.8+, Windows/macOS/Linux
 
